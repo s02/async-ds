@@ -1,0 +1,1 @@
+type Task = () => Promise<unknown>

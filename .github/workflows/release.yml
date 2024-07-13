@@ -1,0 +1,21 @@
+name: "Release"
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.4.1'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@s03'
+          cache: 'yarn'
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
