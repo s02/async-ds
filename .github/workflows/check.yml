@@ -1,5 +1,9 @@
-name: "Build npm package"
-on: ["push"]
+name: "Check code"
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: [ main ]
 jobs:
   check-links:
     runs-on: ubuntu-latest
