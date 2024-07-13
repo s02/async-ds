@@ -16,6 +16,6 @@ jobs:
           cache: 'yarn'
       - run: yarn install --frozen-lockfile
       - run: yarn build
-      - run: npm publish --provenance --access public
+      - run: npm publish --access public
         env:
           NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
