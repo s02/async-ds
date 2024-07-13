@@ -1,0 +1,11 @@
+[*]
+end_of_line = lf
+insert_final_newline = true
+max_line_length = 120
+
+[*.{js,ts}]
+charset = utf-8
+
+[*.ts]
+indent_style = space
+indent_size = 2
