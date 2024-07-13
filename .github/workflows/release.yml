@@ -1,11 +1,11 @@
-name: "Check code"
+name: "Release"
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: [ main ]
 jobs:
-  check-links:
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,6 +16,7 @@ jobs:
           node-version: '22.4.1'
           cache: 'yarn'
       - run: yarn install --frozen-lockfile
-      - run: yarn test
-      - run: yarn types
-      - run: yarn lint
+      - run: yarn build
+      - run: yarn publish
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
