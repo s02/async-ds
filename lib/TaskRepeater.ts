@@ -20,7 +20,7 @@ export class TaskRepeater {
   private readonly jobs: Job[] = []
   private readonly asyncQueue: AsyncQueue
   private complete: { (value?: unknown): void }[] = []
-  private isRunning = false
+  private isStarted = false
   private readonly params: TaskRepeatParams = {}
   private currentRun = 0
 
@@ -88,10 +88,10 @@ export class TaskRepeater {
   }
 
   start() {
-    if (this.isRunning) {
+    if (this.isStarted) {
       return
     }
-    this.isRunning = true
+    this.isStarted = true
     void this.run(this.jobs)
   }
 
@@ -103,8 +103,12 @@ export class TaskRepeater {
 
   private scheduleNextRun(uncompletedJobs: Job[]) {
     const timeout = this.params.intervalStrategy ? this.params.intervalStrategy(this.currentRun) : 0
-    setTimeout(() => {
+    if (!timeout) {
       void this.run(uncompletedJobs)
-    }, timeout)
+    } else {
+      setTimeout(() => {
+        void this.run(uncompletedJobs)
+      }, timeout)
+    }
   }
 }

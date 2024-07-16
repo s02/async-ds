@@ -205,8 +205,15 @@ describe('TaskRepeater', () => {
     )
 
     taskRepeater.start()
-    void vi.advanceTimersByTimeAsync(90)
-    const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ value: 'data-1' }])
+    let completed = false
+    taskRepeater.onComplete().then(() => {
+      completed = true
+    })
+
+    await vi.advanceTimersByTimeAsync(89)
+    expect(completed).toBeFalsy()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(completed).toBeTruthy()
   })
 })
