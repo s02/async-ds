@@ -25,9 +25,9 @@ export class TaskRepeater {
   private currentRun = 0
 
   constructor(tasks: Task[], params?: TaskRepeatParams) {
-    if (params) {
-      this.params = params
-    }
+    this.params.channels = params?.channels || 1
+    this.params.shouldCompleteErrorHandler = params?.shouldCompleteErrorHandler
+    this.params.intervalStrategy = params?.intervalStrategy
 
     for (const [index, task] of tasks.entries()) {
       this.jobs.push({
@@ -38,7 +38,7 @@ export class TaskRepeater {
     }
 
     this.asyncQueue = new AsyncQueue({
-      channels: this.params.channels || 1,
+      channels: this.params.channels,
     })
   }
 
