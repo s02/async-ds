@@ -1,11 +1,19 @@
 import { AsyncQueue } from './AsyncQueue.ts'
 
+type JobStatus = 'pending' | 'completed' | 'failed'
+
 type Job = {
   id: number
   task: Task
-  status: 'pending' | 'resolved' | 'rejected'
+  status: JobStatus
   value?: unknown
   error?: unknown
+}
+
+type TaskRepeatParams = {
+  channels?: number
+  intervalStrategy?: (i: number) => number
+  shouldCompleteErrorHandler?: (err: unknown) => boolean
 }
 
 export class TaskRepeater {
@@ -13,8 +21,14 @@ export class TaskRepeater {
   private readonly asyncQueue: AsyncQueue
   private complete: { (value?: unknown): void }[] = []
   private isRunning = false
+  private readonly params: TaskRepeatParams = {}
+  private currentRun = 0
 
-  constructor(tasks: Task[]) {
+  constructor(tasks: Task[], params?: TaskRepeatParams) {
+    if (params) {
+      this.params = params
+    }
+
     for (const [index, task] of tasks.entries()) {
       this.jobs.push({
         id: index,
@@ -23,10 +37,14 @@ export class TaskRepeater {
       })
     }
 
-    this.asyncQueue = new AsyncQueue()
+    this.asyncQueue = new AsyncQueue({
+      channels: this.params.channels || 1,
+    })
   }
 
   private async run(jobs: Job[]) {
+    this.currentRun++
+
     for (const job of jobs) {
       this.asyncQueue.enqueue(async () => {
         try {
@@ -34,14 +52,19 @@ export class TaskRepeater {
           this.jobs[job.id] = {
             id: job.id,
             task: job.task,
-            status: 'resolved',
+            status: 'completed',
             value: result,
           }
         } catch (e) {
+          let status: JobStatus = 'failed'
+          if (this.params.shouldCompleteErrorHandler && this.params.shouldCompleteErrorHandler(e)) {
+            status = 'completed'
+          }
+
           this.jobs[job.id] = {
             id: job.id,
             task: job.task,
-            status: 'rejected',
+            status,
             error: e,
           }
         }
@@ -49,9 +72,9 @@ export class TaskRepeater {
     }
 
     await this.asyncQueue.onDrain()
-    const uncompleted = this.jobs.filter((job) => job.status === 'rejected')
+    const uncompleted = this.jobs.filter((job) => job.status === 'failed')
     if (uncompleted.length) {
-      void this.run(uncompleted)
+      this.scheduleNextRun(uncompleted)
     } else {
       this.complete.forEach((complete) =>
         complete(
@@ -76,5 +99,12 @@ export class TaskRepeater {
     return new Promise((resolve) => {
       this.complete.push(resolve)
     })
+  }
+
+  private scheduleNextRun(uncompletedJobs: Job[]) {
+    const timeout = this.params.intervalStrategy ? this.params.intervalStrategy(this.currentRun) : 0
+    setTimeout(() => {
+      void this.run(uncompletedJobs)
+    }, timeout)
   }
 }
