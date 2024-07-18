@@ -1,16 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TaskRepeater } from './TaskRepeater.ts'
 
-function checkIsHttpError(err: unknown): err is { code: number } {
-  return (err as { code: number })?.code !== undefined
+class HttpError extends Error {
+  code: number
+
+  constructor(code: number) {
+    super()
+    this.code = code
+  }
 }
 
-function errorHandler(err: unknown) {
-  if (checkIsHttpError(err)) {
-    return err.code !== 429
-  }
+function fakeHttpClient429(calledCounter: number, maxAttempts = 3) {
+  return new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      if (calledCounter < maxAttempts) {
+        reject(new HttpError(429))
+      } else {
+        resolve('data')
+      }
+    }, 20)
+  })
+}
 
-  return false
+function fakeHttpClient500(calledCounter: number) {
+  return new Promise<string>((_, reject) => {
+    setTimeout(() => {
+      if (calledCounter < 3) {
+        reject(new HttpError(429))
+      } else {
+        reject(new HttpError(500))
+      }
+    }, 10)
+  })
 }
 
 describe('TaskRepeater', () => {
@@ -40,7 +61,7 @@ describe('TaskRepeater', () => {
 
     taskRepeater.start()
     const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ value: 'data-1' }, { value: 'data-2' }, { value: 'data-3' }])
+    expect(data).toEqual(['data-1', 'data-2', 'data-3'])
   })
 
   it('should result to be in same places', async () => {
@@ -71,87 +92,43 @@ describe('TaskRepeater', () => {
     taskRepeater.start()
     void vi.advanceTimersByTimeAsync(40)
     const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ value: 'data-1' }, { value: 'data-2' }, { value: 'data-3' }])
+    expect(data).toEqual(['data-1', 'data-2', 'data-3'])
   })
 
   it('should repeat task if rejected', async () => {
     let calledCounter = 0
-
-    const taskRepeater = new TaskRepeater([
-      () =>
-        new Promise((resolve, reject) => {
-          setTimeout(() => {
-            calledCounter++
-            if (calledCounter < 3) {
-              reject()
-            } else {
-              resolve('data')
-            }
-          }, 20)
-        }),
-    ])
+    const taskRepeater = new TaskRepeater([() => fakeHttpClient429(++calledCounter)])
 
     taskRepeater.start()
-    void vi.advanceTimersByTimeAsync(60)
+    void vi.advanceTimersByTimeAsync(160)
     const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ value: 'data' }])
-    expect(calledCounter).toEqual(3)
-  })
-
-  it('should repeat task if error handler allows', async () => {
-    let calledCounter = 0
-    const taskRepeater = new TaskRepeater(
-      [
-        () =>
-          new Promise((resolve, reject) => {
-            setTimeout(() => {
-              calledCounter++
-              if (calledCounter < 3) {
-                reject({ code: 429 })
-              } else {
-                resolve('data')
-              }
-            }, 20)
-          }),
-      ],
-      { shouldCompleteErrorHandler: errorHandler },
-    )
-
-    taskRepeater.start()
-    void vi.advanceTimersByTimeAsync(60)
-    const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ value: 'data' }])
+    expect(data).toEqual(['data'])
     expect(calledCounter).toEqual(3)
   })
 
   it('should complete task when error handler restricts', async () => {
     let calledCounter = 0
 
-    const taskRepeater = new TaskRepeater(
-      [
-        () =>
-          new Promise((resolve, reject) => {
-            setTimeout(() => {
-              calledCounter++
-              if (calledCounter < 5) {
-                if (calledCounter === 3) {
-                  reject({ code: 404 })
-                } else {
-                  reject({ code: 429 })
-                }
-              } else {
-                resolve('data-2')
-              }
-            }, 10)
-          }),
-      ],
-      { shouldCompleteErrorHandler: errorHandler },
-    )
+    const taskRepeater = new TaskRepeater([
+      async () => {
+        try {
+          return await fakeHttpClient500(++calledCounter)
+        } catch (e: unknown) {
+          if (e instanceof HttpError && e.code === 429) {
+            throw new Error()
+          } else {
+            return {
+              error: e,
+            }
+          }
+        }
+      },
+    ])
 
     taskRepeater.start()
     void vi.advanceTimersByTimeAsync(60)
-    const data = await taskRepeater.onComplete()
-    expect(data).toEqual([{ error: { code: 404 } }])
+    const data = (await taskRepeater.onComplete()) as { error: HttpError }[]
+    expect(data[0].error?.code).toEqual(500)
     expect(calledCounter).toEqual(3)
   })
 
@@ -190,5 +167,20 @@ describe('TaskRepeater', () => {
 
     await vi.advanceTimersByTimeAsync(1)
     expect(completed).toBeTruthy()
+  })
+
+  it('should fail when max attempts exceeded', async () => {
+    let calledCounter = 0
+    const taskRepeater = new TaskRepeater([() => fakeHttpClient429(++calledCounter, 10)], { maxRuns: 2 })
+
+    taskRepeater.start()
+    void vi.advanceTimersByTimeAsync(100)
+    try {
+      await taskRepeater.onComplete()
+    } catch (e) {
+      expect(e).toEqual('Max attempts exceeded')
+    }
+
+    expect(calledCounter).toEqual(2)
   })
 })

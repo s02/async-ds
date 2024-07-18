@@ -7,27 +7,38 @@ type Job = {
   task: Task
   status: JobStatus
   value?: unknown
-  error?: unknown
 }
 
 type TaskRepeatParams = {
   channels?: number
   intervalStrategy?: (i: number) => number
-  shouldCompleteErrorHandler?: (err: unknown) => boolean
+  maxRuns?: number
+}
+
+type TaskRepeatDefaults = {
+  channels: number
+  maxRuns: number
+  intervalStrategy?: (i: number) => number
+}
+
+const defaultParams: TaskRepeatDefaults = {
+  channels: 1,
+  maxRuns: Number.MAX_SAFE_INTEGER,
 }
 
 export class TaskRepeater {
   private readonly jobs: Job[] = []
   private readonly asyncQueue: AsyncQueue
   private complete: { (value?: unknown): void }[] = []
+  private failed: { (reason?: unknown): void }[] = []
   private isStarted = false
-  private readonly params: TaskRepeatParams = {}
   private currentRun = 0
+  private readonly params = defaultParams
 
   constructor(tasks: Task[], params?: TaskRepeatParams) {
-    this.params.channels = params?.channels || 1
-    this.params.shouldCompleteErrorHandler = params?.shouldCompleteErrorHandler
-    this.params.intervalStrategy = params?.intervalStrategy
+    this.params.channels = params?.channels || this.params.channels
+    this.params.intervalStrategy = params?.intervalStrategy || this.params.intervalStrategy
+    this.params.maxRuns = params?.maxRuns || this.params.maxRuns
 
     for (const [index, task] of tasks.entries()) {
       this.jobs.push({
@@ -56,16 +67,10 @@ export class TaskRepeater {
             value: result,
           }
         } catch (e) {
-          let status: JobStatus = 'failed'
-          if (this.params.shouldCompleteErrorHandler && this.params.shouldCompleteErrorHandler(e)) {
-            status = 'completed'
-          }
-
           this.jobs[job.id] = {
             id: job.id,
             task: job.task,
-            status,
-            error: e,
+            status: 'failed',
           }
         }
       })
@@ -74,16 +79,13 @@ export class TaskRepeater {
     await this.asyncQueue.onDrain()
     const uncompleted = this.jobs.filter((job) => job.status === 'failed')
     if (uncompleted.length) {
-      this.scheduleNextRun(uncompleted)
+      if (this.currentRun < this.params.maxRuns) {
+        this.scheduleNextRun(uncompleted)
+      } else {
+        this.failed.forEach((fail) => fail('Max attempts exceeded'))
+      }
     } else {
-      this.complete.forEach((complete) =>
-        complete(
-          this.jobs.map((job) => ({
-            value: job.value,
-            error: job.error,
-          })),
-        ),
-      )
+      this.complete.forEach((complete) => complete(this.jobs.map((job) => job.value)))
     }
   }
 
@@ -96,8 +98,9 @@ export class TaskRepeater {
   }
 
   onComplete() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.complete.push(resolve)
+      this.failed.push(reject)
     })
   }
 
