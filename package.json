@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "vite build",
-    "test": "vitest",
+    "test": "vitest run",
     "types": "tsc --noEmit",
     "lint": "eslint . --ext ts --report-unused-disable-directives --max-warnings 0"
   },
